@@ -1,0 +1,150 @@
+---
+title: "Recommendation_engine_individual"
+author: "Celine Khoury"
+date: "3/22/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r }
+library(recommenderlab)
+library(Matrix)
+library(lubridate)
+library(dplyr)
+```
+
+```{r}
+hotels <- read.csv("Datafiniti_Hotel_Reviews.csv")
+
+hotels$reviews.date = as.Date(hotels$reviews.date)
+
+
+# Subsetting: Last five years were taken into account 
+hotels = hotels[hotels$reviews.date > (Sys.Date()- years(5) ),]
+
+#Creating a new column with the three different price categories (Expensive, Fair, Cheap)
+hotels = hotels %>% group_by(name) %>% mutate(price_category =sample(c('Expensive','Cheap','Fair'),1,replace=T, prob = c(0.35,0.35,0.3)) )
+hotels = as.data.frame(hotels)
+
+# Create a three-columns dataset with the name of the reviewer, the name of the hotel and the ratings 
+matrix = data.frame(hotels$reviews.username, hotels$name,hotels$reviews.rating)
+
+# Convert it to binaryRatingMatrix
+myMatrix <- as(matrix,'realRatingMatrix')
+
+
+```
+
+
+```{r }
+
+recc <- NA
+targeted_movies <- NA
+
+# This algorithm only recommends within one province
+trainMyAlgorithm <- function(data, metadata, prov = unique(hotels$province), primCat = unique(hotels$price_category)) {
+  targeted_hotels <<- unique(metadata[(metadata[,'province'] == prov & metadata[,'price_category'] == primCat) , "name"])
+  filtered_data <- data[,targeted_hotels]
+  recom <<-HybridRecommender(Recommender(filtered_data, method = "UBCF",
+                                         parameter = list(method = "pearson", normalize='center',
+                                                          nn=50)),
+                             Recommender(filtered_data, method = "IBCF",                                        
+                                         parameter =list(k=10, normalize='Z-Score' )),
+                             Recommender(filtered_data, method = "POPULAR"),
+                             weights = c( 0.6,0.3 , 0.1)
+  )
+  
+}
+
+
+applyMyAlgorithm <- function(data,user) { 
+  filtered_data <- data[,targeted_hotels]
+  pre <- predict(recom, filtered_data , n=5)
+  pred_list <- as(pre, "list")
+  return(pred_list[user])
+}
+user = 1
+province = 'CA'
+
+for (i in unique(hotels$price_category)){
+  trainMyAlgorithm(myMatrix,hotels,province,primCat = i)
+  results = applyMyAlgorithm(myMatrix, user )
+  print(paste0('Recomendation of ',i ,' hotels in ',province))
+  print(results)
+}
+```
+
+
+```{r}
+# For new users the same approach will be taken in regards to the filtering with provinces and price range, although the hybrid recommender will only include the popular and random algorithms 
+recc <- NA
+targeted_movies <- NA
+
+# This algorithm only recommends within one province
+trainMyAlgorithm <- function(data, metadata, prov = unique(hotels$province), primCat = unique(hotels$price_category)) {
+  targeted_hotels <<- unique(metadata[(metadata[,'province'] == prov & metadata[,'price_category'] == primCat) , "name"])
+  filtered_data <- data[,targeted_hotels]
+  recom <<-HybridRecommender(Recommender(filtered_data, method = "RANDOM"),
+                             Recommender(filtered_data, method = "POPULAR"),
+                             weights = c( 0.1,0.9)
+  )
+  
+}
+
+
+applyMyAlgorithm <- function(data,user) { 
+  filtered_data <- data[,targeted_hotels]
+  pre <- predict(recom, filtered_data , n=5)
+  pred_list <- as(pre, "list")
+  return(pred_list[user])
+}
+user = 10
+province = 'LA'
+
+for (i in unique(hotels$price_category)){
+  trainMyAlgorithm(myMatrix,hotels,province,primCat = i)
+  results = applyMyAlgorithm(myMatrix, user )
+  print(paste0('Recomendation of ',i ,' hotels in ',province))
+  print(results)
+}
+```
+
+
+
+```{r}
+
+# In this case only the reviews from the prior month, current one and the one after for all the years will be taken ,this will catch the weather or the season trends that some hotels may have, some weight will be added to popularity here just to take into consideration that hotels with more ratings are significant in this case 
+trainMyAlgorithm <- function(metadata, the_date = Sys.Date()) {
+  filtered_meta <- metadata[month(metadata$reviews.date) %in% c(month(the_date) ,month(the_date+month(31)) , month(the_date-month(31)) ),]    ## This line of code filters the initial metadata set to only keep the ratings required as mentioned above
+  matrix <- data.frame(filtered_meta$reviews.username, filtered_meta$name,filtered_meta$reviews.rating)
+  matrix_date <<- as(matrix,'realRatingMatrix')
+  recom2 <<-HybridRecommender(Recommender(matrix_date, method = "UBCF",
+                                         parameter = list(method = "pearson", normalize='center',
+                                                          nn=50)),
+                             Recommender(matrix_date, method = "IBCF",                                        
+                                         parameter =list(k=10, normalize='Z-Score' )),
+                             Recommender(matrix_date, method = "POPULAR"),
+                             weights = c( 0.35,0.35 , 0.3)
+  )
+  
+}
+
+
+applyMyAlgorithm <- function(data,user) { 
+  pre <- predict(recom2, data , n=10)
+  pred_list <- as(pre, "list")
+  return(pred_list[user])
+}
+
+DATE  <- Sys.Date()   ### Here the date of the trip should be assigned
+  trainMyAlgorithm(hotels, Sys.Date())
+results = applyMyAlgorithm(matrix_date, user )
+ print( paste0('These are the best hotels for you around ',DATE ))
+ print(results)
+```
+
